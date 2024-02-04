@@ -149,6 +149,8 @@ type TypeScriptify struct {
 	DontExport        bool
 	CreateInterface   bool
 	ReadOnlyFields    bool
+	CamelCaseFields   bool
+	CamelCaseOptions  *CamelCaseOptions
 	customImports     []string
 
 	structTypes []StructType
@@ -259,6 +261,12 @@ func (t *TypeScriptify) WithInterface(b bool) *TypeScriptify {
 
 func (t *TypeScriptify) WithReadonlyFields(b bool) *TypeScriptify {
 	t.ReadOnlyFields = b
+	return t
+}
+
+func (t *TypeScriptify) WithCamelCaseFields(b bool, opts *CamelCaseOptions) *TypeScriptify {
+	t.CamelCaseFields = b
+	t.CamelCaseOptions = opts
 	return t
 }
 
@@ -596,12 +604,16 @@ func (t *TypeScriptify) getJSONFieldName(field reflect.StructField, isPtr bool) 
 		jsonTagParts := strings.Split(jsonTag, ",")
 		if len(jsonTagParts) > 0 {
 			jsonFieldName = strings.Trim(jsonTagParts[0], t.Indent)
+			//`json:",omitempty"` is valid
+			if jsonFieldName == "" {
+				jsonFieldName = field.Name
+			}
 		}
 		hasOmitEmpty := false
 		ignored := false
 		for _, t := range jsonTagParts {
 			if t == "" {
-				break
+				continue
 			}
 			if t == "omitempty" {
 				hasOmitEmpty = true
@@ -617,6 +629,9 @@ func (t *TypeScriptify) getJSONFieldName(field reflect.StructField, isPtr bool) 
 		}
 	} else if /*field.IsExported()*/ field.PkgPath == "" {
 		jsonFieldName = field.Name
+	}
+	if t.CamelCaseFields {
+		jsonFieldName = CamelCase(jsonFieldName, t.CamelCaseOptions)
 	}
 	return jsonFieldName
 }

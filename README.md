@@ -50,19 +50,22 @@ Command line options:
 
 ```
 $ tscriptify --help
-Usage of tscriptify:
   -all-optional
-        Create interfaces with all fields optional
+        Set all fields optional
   -backup string
         Directory where backup files are saved
+  -camel-case
+        Convert all field names to camelCase
   -import value
         Typescript import for your custom type, repeat this option for each import needed
   -interface
         Create interfaces (not classes)
+  -local-pkg
+        Replace github.com/GoodNotes/typescriptify-golang-structs with the current directory in go.mod file. Useful for local development.
   -package string
         Path of the package with models
   -readonly
-        Create interfaces with readonly fields
+        Set all fields readonly
   -target string
         Target typescript file
   -verbose
@@ -71,7 +74,7 @@ Usage of tscriptify:
 
 ## Models and conversion
 
-If the `Person` structs contain a reference to the `Address` struct, then you don't have to add `Address` explicitly. Only fields with a valid `json` tag will be converted to TypeScript models.
+If the `Person` structs contain a reference to the `Address` struct, then you don't have to add `Address` explicitly. Any public field will be converted to TypeScript models.
 
 Example input structs:
 
@@ -217,7 +220,7 @@ class Address {
 
 The lines between `//[Address:]` and `//[end]` will be left intact after `ConvertToFile()`.
 
-If your custom code contain methods, then just casting yout object to the target class (with `<Person> {...}`) won't work because the casted object won't contain your methods.
+If your custom code contain methods, then just casting your object to the target class (with `<Person> {...}`) won't work because the casted object won't contain your methods.
 
 In that case use the constructor:
 
@@ -457,6 +460,40 @@ Below snippet shows how to set the field `ObjectType` of the above `SecretDescri
 	t := typescriptify.
 		New().
 		AddTypeWithName(sdTypeTagged, "SecretDescriptor")
+```
+
+Conversion of field names to camelCase can be achieved using the `WithCamelCase` method:
+
+```golang
+	type PersonalInfo struct {
+		Hobbies []string `json:",omitempty"`
+		PetName string   `json:",omitempty"`
+	}
+	type CloudKitDev struct {
+		Name         string
+		PersonalInfo PersonalInfo
+	}
+
+	t := typescriptify.New()
+	t.CreateInterface = true
+	t.ReadOnlyFields = true
+	t.CamelCaseFields = true
+	t.BackupDir = ""
+
+	t.AddType(reflect.TypeOf(CloudKitDev{}))
+```
+
+The resulting code will be:
+
+```typescript
+export interface PersonalInfo {
+  readonly hobbies?: string[];
+  readonly petName?: string;
+}
+export interface CloudKitDev {
+  readonly name: string;
+  readonly personalInfo: PersonalInfo;
+}
 ```
 
 > Note: In both of these cases use the `AddTypeWithName` method to explicitly provide the name for the generated TypeScript interface.

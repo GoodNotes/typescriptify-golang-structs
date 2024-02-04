@@ -18,8 +18,8 @@ type Address struct {
 	// Used in html
 	Duration float64 `json:"duration"`
 	Text1    string  `json:"text,omitempty"`
+	Text2    string  `json:",omitempty"`
 	// Ignored:
-	Text2 string `json:",omitempty"`
 	Text3 string `json:"-"`
 }
 
@@ -50,20 +50,21 @@ func TestTypescriptifyWithTypes(t *testing.T) {
 	converter.BackupDir = ""
 
 	desiredResult := `export class Dummy {
-        something: string;
+	something: string;
 }
 export class Address {
-        duration: number;
-        text?: string;
+	duration: number;
+	text?: string;
+	Text2?: string;
 }
 export class Person {
-        name: string;
-        nicknames: string[];
-		addresses: Address[];
-		address?: Address;
-		metadata: {[key:string]:string};
-		friends: Person[];
-        a: Dummy;
+	name: string;
+	nicknames: string[];
+	addresses: Address[];
+	address?: Address;
+	metadata: {[key:string]:string};
+	friends: Person[];
+	a: Dummy;
 }`
 	testConverter(t, converter, false, desiredResult, nil)
 }
@@ -81,20 +82,21 @@ func TestTypescriptifyWithCustomImports(t *testing.T) {
 //import { Decimal } from 'decimal.js'
 
 export class Dummy {
-        something: string;
+	something: string;
 }
 export class Address {
-        duration: number;
-        text?: string;
+	duration: number;
+	text?: string;
+	Text2?: string;
 }
 export class Person {
-        name: string;
-        nicknames: string[];
-		addresses: Address[];
-		address?: Address;
-		metadata: {[key:string]:string};
-		friends: Person[];
-        a: Dummy;
+	name: string;
+	nicknames: string[];
+	addresses: Address[];
+	address?: Address;
+	metadata: {[key:string]:string};
+	friends: Person[];
+	a: Dummy;
 }`
 	testConverter(t, converter, false, desiredResult, nil)
 }
@@ -113,17 +115,18 @@ func TestTypescriptifyWithInstances(t *testing.T) {
         something: string;
 }
 class Address {
-        duration: number;
-        text?: string;
+	duration: number;
+	text?: string;
+	Text2?: string;
 }
 class Person {
-        name: string;
-        nicknames: string[];
-		addresses: Address[];
-		address?: Address;
-		metadata: {[key:string]:string};
-		friends: Person[];
-        a: Dummy;
+	name: string;
+	nicknames: string[];
+	addresses: Address[];
+	address?: Address;
+	metadata: {[key:string]:string};
+	friends: Person[];
+	a: Dummy;
 }`
 	testConverter(t, converter, false, desiredResult, nil)
 }
@@ -139,20 +142,21 @@ func TestTypescriptifyWithInterfaces(t *testing.T) {
 	converter.CreateInterface = true
 
 	desiredResult := `interface Dummy {
-        something: string;
+	something: string;
 }
 interface Address {
-        duration: number;
-        text?: string;
+	duration: number;
+	text?: string;
+	Text2?: string;
 }
 interface Person {
-        name: string;
-        nicknames: string[];
-		addresses: Address[];
-		address?: Address;
-		metadata: {[key:string]:string};
-		friends: Person[];
-        a: Dummy;
+	name: string;
+	nicknames: string[];
+	addresses: Address[];
+	address?: Address;
+	metadata: {[key:string]:string};
+	friends: Person[];
+	a: Dummy;
 }`
 	testConverter(t, converter, true, desiredResult, nil)
 }
@@ -169,8 +173,9 @@ func TestTypescriptifyWithAddTags(t *testing.T) {
 	converter.AddTypeWithName(addressOptional, "Address")
 
 	desiredResult := `export interface Address {
-    readonly duration?: number;
-    readonly text?: string;
+	readonly duration?: number;
+	readonly text?: string;
+	readonly Text2?: string;
 }`
 	testConverter(t, converter, true, desiredResult, nil)
 }
@@ -196,8 +201,9 @@ func TestTypescriptifyWithFieldTags(t *testing.T) {
 	converter.AddTypeWithName(addressTagged, "Address")
 
 	desiredResult := `export interface Address {
-    readonly duration: number;
-    readonly text?: "domestic" | "european" | "international";
+	readonly duration: number;
+	readonly text?: "domestic" | "european" | "international";
+	readonly Text2?: string;
 }`
 	testConverter(t, converter, true, desiredResult, nil)
 }
@@ -212,20 +218,21 @@ func TestTypescriptifyWithDoubleClasses(t *testing.T) {
 	converter.BackupDir = ""
 
 	desiredResult := `export class Dummy {
-        something: string;
+	something: string;
 }
 export class Address {
-        duration: number;
-        text?: string;
+	duration: number;
+	text?: string;
+	Text2?: string;
 }
 export class Person {
-        name: string;
-		nicknames: string[];
-		addresses: Address[];
-		address?: Address;
-		metadata: {[key:string]:string};
-		friends: Person[];
-        a: Dummy;
+	name: string;
+	nicknames: string[];
+	addresses: Address[];
+	address?: Address;
+	metadata: {[key:string]:string};
+	friends: Person[];
+	a: Dummy;
 }`
 	testConverter(t, converter, false, desiredResult, nil)
 }
@@ -244,40 +251,42 @@ func TestWithPrefixes(t *testing.T) {
 	desiredResult := `class test_Dummy_test {
 	something: string;
 
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.something = source["something"];
-    }
+	constructor(source: any = {}) {
+		if ('string' === typeof source) source = JSON.parse(source);
+		this.something = source["something"];
+	}
 }
 class test_Address_test {
-    duration: number;
+	duration: number;
 	text?: string;
+	Text2?: string;
 
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.duration = source["duration"];
-        this.text = source["text"];
-    }
+	constructor(source: any = {}) {
+		if ('string' === typeof source) source = JSON.parse(source);
+		this.duration = source["duration"];
+		this.text = source["text"];
+		this.Text2 = source["Text2"];
+	}
 }
 class test_Person_test {
-    name: string;
-    nicknames: string[];
-    addresses: test_Address_test[];
-    address?: test_Address_test;
-    metadata: {[key:string]:string};
-    friends: test_Person_test[];
+	name: string;
+	nicknames: string[];
+	addresses: test_Address_test[];
+	address?: test_Address_test;
+	metadata: {[key:string]:string};
+	friends: test_Person_test[];
 	a: test_Dummy_test;
 
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.name = source["name"];
-        this.nicknames = source["nicknames"];
-        this.addresses = this.convertValues(source["addresses"], test_Address_test);
-        this.address = this.convertValues(source["address"], test_Address_test);
+	constructor(source: any = {}) {
+		if ('string' === typeof source) source = JSON.parse(source);
+		this.name = source["name"];
+		this.nicknames = source["nicknames"];
+		this.addresses = this.convertValues(source["addresses"], test_Address_test);
+		this.address = this.convertValues(source["address"], test_Address_test);
 		this.metadata = JSON.parse(source["metadata"] || "{}");
 		this.friends = this.convertValues(source["friends"], test_Person_test);
 		this.a = this.convertValues(source["a"], test_Dummy_test);
-    }
+	}
 
 	` + tsConvertValuesFunc + `
 }`
@@ -392,7 +401,7 @@ func TestTypescriptifyCustomType(t *testing.T) {
 	converter.CreateConstructor = false
 
 	desiredResult := `export class TestCustomType {
-        map: {[key: string]: number};
+	map: {[key: string]: number};
 }`
 	testConverter(t, converter, false, desiredResult, nil)
 }
@@ -410,10 +419,10 @@ func TestDate(t *testing.T) {
 	desiredResult := `export class TestCustomType {
 	time: Date;
 
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.time = new Date(source["time"]);
-    }
+	constructor(source: any = {}) {
+			if ('string' === typeof source) source = JSON.parse(source);
+			this.time = new Date(source["time"]);
+	}
 }`
 
 	jsn := jsonizeOrPanic(TestCustomType{Time: time.Date(2020, 10, 9, 8, 9, 0, 0, time.UTC)})
@@ -445,10 +454,10 @@ func TestDateWithoutTags(t *testing.T) {
 		desiredResult := `export class TestCustomType {
 	time: Date;
 
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.time = new Date(source["time"]);
-    }
+	constructor(source: any = {}) {
+			if ('string' === typeof source) source = JSON.parse(source);
+			this.time = new Date(source["time"]);
+	}
 }`
 
 		jsn := jsonizeOrPanic(TestCustomType{Time: time.Date(2020, 10, 9, 8, 9, 0, 0, time.UTC)})
@@ -474,10 +483,10 @@ func TestRecursive(t *testing.T) {
 	desiredResult := `export class Test {
 	children: Test[];
 
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.children = this.convertValues(source["children"], Test);
-    }
+	constructor(source: any = {}) {
+			if ('string' === typeof source) source = JSON.parse(source);
+			this.children = this.convertValues(source["children"], Test);
+	}
 
 	` + tsConvertValuesFunc + `
 }`
@@ -501,18 +510,18 @@ func TestArrayOfArrays(t *testing.T) {
 	desiredResult := `export class Key {
 	key: string;
 
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.key = source["key"];
-    }
+	constructor(source: any = {}) {
+			if ('string' === typeof source) source = JSON.parse(source);
+			this.key = source["key"];
+	}
 }
 export class Keyboard {
-    keys: Key[][];
+	keys: Key[][];
 
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.keys = this.convertValues(source["keys"], Key);
-    }
+	constructor(source: any = {}) {
+			if ('string' === typeof source) source = JSON.parse(source);
+			this.keys = this.convertValues(source["keys"], Key);
+	}
 
 	` + tsConvertValuesFunc + `
 }`
@@ -535,20 +544,20 @@ func TestFixedArray(t *testing.T) {
 	desiredResult := `export class Sub {
 
 
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
+	constructor(source: any = {}) {
+		if ('string' === typeof source) source = JSON.parse(source);
 
-    }
+	}
 }
 export class Tmp {
-    arr: string[];
-    arr2: Sub[];
+	arr: string[];
+	arr2: Sub[];
 
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.arr = source["arr"];
-        this.arr2 = this.convertValues(source["arr2"], Sub);
-    }
+	constructor(source: any = {}) {
+		if ('string' === typeof source) source = JSON.parse(source);
+		this.arr = source["arr"];
+		this.arr2 = this.convertValues(source["arr2"], Sub);
+	}
 
 	` + tsConvertValuesFunc + `
 }
@@ -570,10 +579,10 @@ func TestAny(t *testing.T) {
 	desiredResult := `export class Test {
 	field: any;
 
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.field = source["field"];
-	}
+	constructor(source: any = {}) {
+		if ('string' === typeof source) source = JSON.parse(source);
+		this.field = source["field"];
+}
 }`
 	testConverter(t, converter, true, desiredResult, nil)
 }
@@ -597,7 +606,7 @@ func TestTypeAlias(t *testing.T) {
 	converter.CreateConstructor = false
 
 	desiredResult := `export class Person {
-    birth: number;
+	birth: number;
 }`
 	testConverter(t, converter, false, desiredResult, nil)
 }
@@ -625,7 +634,7 @@ func TestOverrideCustomType(t *testing.T) {
 	converter.CreateConstructor = false
 
 	desiredResult := `export class SomeStruct {
-    time: number;
+	time: number;
 }`
 	testConverter(t, converter, false, desiredResult, nil)
 
@@ -718,11 +727,11 @@ export class Holliday {
 	name: string;
 	weekday: Weekday;
 
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.name = source["name"];
-        this.weekday = source["weekday"];
-    }
+	constructor(source: any = {}) {
+		if ('string' === typeof source) source = JSON.parse(source);
+		this.name = source["name"];
+		this.weekday = source["weekday"];
+	}
 }`
 		testConverter(t, converter, true, desiredResult, nil)
 	}
@@ -768,51 +777,53 @@ func TestConstructorWithReferences(t *testing.T) {
 		WithBackupDir("")
 
 	desiredResult := `export enum Weekday {
-    SUNDAY = 0,
-    MONDAY = 1,
-    TUESDAY = 2,
-    WEDNESDAY = 3,
-    THURSDAY = 4,
-    FRIDAY = 5,
-    SATURDAY = 6,
+	SUNDAY = 0,
+	MONDAY = 1,
+	TUESDAY = 2,
+	WEDNESDAY = 3,
+	THURSDAY = 4,
+	FRIDAY = 5,
+	SATURDAY = 6,
 }
 export class Dummy {
-    something: string;
+	something: string;
 
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.something = source["something"];
-    }
+	constructor(source: any = {}) {
+		if ('string' === typeof source) source = JSON.parse(source);
+		this.something = source["something"];
+	}
 }
 export class Address {
-    duration: number;
-    text?: string;
+	duration: number;
+	text?: string;
+	Text2?: string;
 
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.duration = source["duration"];
-        this.text = source["text"];
-    }
+	constructor(source: any = {}) {
+		if ('string' === typeof source) source = JSON.parse(source);
+		this.duration = source["duration"];
+		this.text = source["text"];
+		this.Text2 = source["Text2"];
+	}
 }
 export class Person {
-    name: string;
-    nicknames: string[];
-    addresses: Address[];
-    address?: Address;
-    metadata: {[key:string]:string};
-    friends: Person[];
-    a: Dummy;
+	name: string;
+	nicknames: string[];
+	addresses: Address[];
+	address?: Address;
+	metadata: {[key:string]:string};
+	friends: Person[];
+	a: Dummy;
 
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.name = source["name"];
-        this.nicknames = source["nicknames"];
-        this.addresses = this.convertValues(source["addresses"], Address);
-        this.address = this.convertValues(source["address"], Address);
+	constructor(source: any = {}) {
+		if ('string' === typeof source) source = JSON.parse(source);
+		this.name = source["name"];
+		this.nicknames = source["nicknames"];
+		this.addresses = this.convertValues(source["addresses"], Address);
+		this.address = this.convertValues(source["address"], Address);
 		this.metadata = JSON.parse(source["metadata"] || "{}");
-        this.friends = this.convertValues(source["friends"], Person);
-        this.a = this.convertValues(source["a"], Dummy);
-    }
+		this.friends = this.convertValues(source["friends"], Person);
+		this.a = this.convertValues(source["a"], Dummy);
+	}
 
 	` + tsConvertValuesFunc + `
 }`
@@ -834,30 +845,32 @@ func TestMaps(t *testing.T) {
 		WithBackupDir("")
 
 	desiredResult := `
-      export class API_Address {
-          duration: number;
-          text?: string;
+export class API_Address {
+	duration: number;
+	text?: string;
+	Text2?: string;
 
-          constructor(source: any = {}) {
-              if ('string' === typeof source) source = JSON.parse(source);
-              this.duration = source["duration"];
-              this.text = source["text"];
-		  }
-      }
-      export class API_WithMap {
-          simpleMap: {[key: string]: number};
-          mapObjects: {[key: string]: API_Address};
-          ptrMapObjects?: {[key: string]: API_Address};
+	constructor(source: any = {}) {
+			if ('string' === typeof source) source = JSON.parse(source);
+			this.duration = source["duration"];
+			this.text = source["text"];
+			this.Text2 = source["Text2"];
+	}
+}
+export class API_WithMap {
+		simpleMap: {[key: string]: number};
+		mapObjects: {[key: string]: API_Address};
+		ptrMapObjects?: {[key: string]: API_Address};
 
-          constructor(source: any = {}) {
-              if ('string' === typeof source) source = JSON.parse(source);
-              this.simpleMap = source["simpleMap"];
-			  this.mapObjects = this.convertValues(source["mapObjects"], API_Address, true);
-			  this.ptrMapObjects = this.convertValues(source["ptrMapObjects"], API_Address, true);
-		  }
+	constructor(source: any = {}) {
+		if ('string' === typeof source) source = JSON.parse(source);
+		this.simpleMap = source["simpleMap"];
+		this.mapObjects = this.convertValues(source["mapObjects"], API_Address, true);
+		this.ptrMapObjects = this.convertValues(source["ptrMapObjects"], API_Address, true);
+	}
 
-		  ` + tsConvertValuesFunc + `
-      }
+	` + tsConvertValuesFunc + `
+}
 `
 
 	json := WithMap{
@@ -891,7 +904,7 @@ func TestPTR(t *testing.T) {
 	converter.Add(Person{})
 
 	desiredResult := `export class Person {
-    name?: string;
+	name?: string;
 }`
 	testConverter(t, converter, true, desiredResult, nil)
 }
@@ -911,14 +924,14 @@ func TestAnonymousPtr(t *testing.T) {
 		WithBackupDir("")
 
 	desiredResult := `
-      export class PersonWithPtrName {
-          name: string;
+export class PersonWithPtrName {
+	name: string;
 
-          constructor(source: any = {}) {
-              if ('string' === typeof source) source = JSON.parse(source);
-              this.name = source["name"];
-          }
-      }
+	constructor(source: any = {}) {
+		if ('string' === typeof source) source = JSON.parse(source);
+		this.name = source["name"];
+	}
+}
 `
 	testConverter(t, converter, true, desiredResult, nil)
 }
@@ -935,18 +948,18 @@ func TestTestConverter(t *testing.T) {
 	t.Parallel()
 
 	ts := `class Converter {
-		` + tsConvertValuesFunc + `
+	` + tsConvertValuesFunc + `
 }
 const converter = new Converter();
 
 class Address {
-    street: string;
-    number: number;
+	street: string;
+	number: number;
 
-    constructor(a: any) {
-        this.street = a["street"];
-        this.number = a["number"];
-    }
+	constructor(a: any) {
+		this.street = a["street"];
+		this.number = a["number"];
+	}
 }
 `
 
@@ -985,14 +998,14 @@ func TestIgnoredPTR(t *testing.T) {
 	converter.Add(PersonWithIgnoredPtr{})
 
 	desiredResult := `
-      export class PersonWithIgnoredPtr {
-          name: string;
+export class PersonWithIgnoredPtr {
+	name: string;
 
-          constructor(source: any = {}) {
-              if ('string' === typeof source) source = JSON.parse(source);
-              this.name = source["name"];
-          }
-      }
+	constructor(source: any = {}) {
+		if ('string' === typeof source) source = JSON.parse(source);
+		this.name = source["name"];
+	}
+}
 `
 	testConverter(t, converter, true, desiredResult, nil)
 }
@@ -1008,12 +1021,12 @@ func TestMapWithPrefix(t *testing.T) {
 
 	desiredResult := `
 export class prefix_Example {
-    variable: {[key: string]: string};
+	variable: {[key: string]: string};
 
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.variable = source["variable"];
-    }
+	constructor(source: any = {}) {
+		if ('string' === typeof source) source = JSON.parse(source);
+		this.variable = source["variable"];
+	}
 }
 `
 	testConverter(t, converter, true, desiredResult, nil)
@@ -1032,12 +1045,12 @@ func TestFieldNamesWithoutJSONAnnotation(t *testing.T) {
 	converter := New().Add(WithoutAnnotation{})
 	desiredResult := `
 export class WithoutAnnotation {
-    PublicField: string;
+	PublicField: string;
 
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.PublicField = source["PublicField"];
-    }
+	constructor(source: any = {}) {
+		if ('string' === typeof source) source = JSON.parse(source);
+		this.PublicField = source["PublicField"];
+	}
 }
 `
 	testConverter(t, converter, true, desiredResult, nil)
@@ -1061,6 +1074,56 @@ func TestTypescriptifyComment(t *testing.T) {
 	age: number;
 	/** Name comment */
 	name: string;
+}`
+	testConverter(t, converter, false, desiredResult, nil)
+}
+
+func TestTypescriptifyCamelCase(t *testing.T) {
+	t.Parallel()
+	type Person struct {
+		Age             int
+		Name            string
+		FooBar          string
+		IsHTMLCertified bool
+	}
+
+	converter := New().WithCamelCaseFields(true, nil)
+
+	converter.AddType(reflect.TypeOf(Person{}))
+	converter.BackupDir = ""
+	converter.CreateConstructor = false
+
+	desiredResult := `export class Person {
+	age: number;
+	name: string;
+	fooBar: string;
+	isHtmlCertified: boolean;
+}`
+	testConverter(t, converter, false, desiredResult, nil)
+}
+
+func TestTypescriptifyCamelCasePreserveConsecutiveUppercase(t *testing.T) {
+	t.Parallel()
+	type Person struct {
+		Age             int
+		Name            string
+		FooBar          string
+		FooBAR          string
+		IsHTMLCertified bool
+	}
+
+	converter := New().WithCamelCaseFields(true, &CamelCaseOptions{PreserveConsecutiveUppercase: true})
+
+	converter.AddType(reflect.TypeOf(Person{}))
+	converter.BackupDir = ""
+	converter.CreateConstructor = false
+
+	desiredResult := `export class Person {
+	age: number;
+	name: string;
+	fooBar: string;
+	fooBAR: string;
+	isHTMLCertified: boolean;
 }`
 	testConverter(t, converter, false, desiredResult, nil)
 }

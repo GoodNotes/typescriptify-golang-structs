@@ -21,3 +21,13 @@ type Person struct {
 	Metadata     []byte       `json:"metadata" ts_type:"{[key:string]:string}"`
 	Friends      []*Person    `json:"friends"`
 }
+
+type CloudKitDev struct {
+	Name         string
+	PersonalInfo PersonalInfo
+	Nicknames    []string
+	Addresses    []Address
+	Address      *Address
+	Metadata     []byte
+	Friends      []*Person
+}

@@ -44,6 +44,7 @@ func main() {
 	t := typescriptify.New()
 	t.CreateInterface = {{ .Interface }}
 	t.ReadOnlyFields = {{ .Readonly }}
+	t.CamelCaseFields = {{ .CamelCase }}
 {{ range $key, $value := .InitParams }}	t.{{ $key }}={{ $value }}
 {{ end }}
 {{ if .AllOptional }}
@@ -71,6 +72,8 @@ type Params struct {
 	Interface     bool
 	Readonly      bool
 	AllOptional   bool
+	CamelCase     bool
+	LocalPkg      bool
 	Verbose       bool
 }
 
@@ -81,9 +84,11 @@ func main() {
 	flag.StringVar(&p.TargetFile, "target", "", "Target typescript file")
 	flag.StringVar(&backupDir, "backup", "", "Directory where backup files are saved")
 	flag.BoolVar(&p.Interface, "interface", false, "Create interfaces (not classes)")
-	flag.BoolVar(&p.Readonly, "readonly", false, "Create interfaces with readonly fields")
-	flag.BoolVar(&p.AllOptional, "all-optional", false, "Create interfaces with all fields optional")
+	flag.BoolVar(&p.Readonly, "readonly", false, "Set all fields readonly")
+	flag.BoolVar(&p.AllOptional, "all-optional", false, "Set all fields optional")
+	flag.BoolVar(&p.CamelCase, "camel-case", false, "Convert all field names to camelCase")
 	flag.Var(&p.CustomImports, "import", "Typescript import for your custom type, repeat this option for each import needed")
+	flag.BoolVar(&p.LocalPkg, "local-pkg", false, "Replace github.com/GoodNotes/typescriptify-golang-structs with the current directory in go.mod file. Useful for local development.")
 	flag.BoolVar(&p.Verbose, "verbose", false, "Verbose logs")
 	flag.Parse()
 
@@ -140,30 +145,38 @@ func main() {
 		handleErr(err)
 		fmt.Printf("\nCompiling generated code (%s):\n%s\n----------------------------------------------------------------------------------------------------\n", f.Name(), string(byts))
 	}
+	executeCommand(d, nil, "go", "mod", "init", "tmp")
 
-	var cmd *exec.Cmd
-	cmdInit := exec.Command("go", "mod", "init", "tmp")
-	fmt.Println(d + ": " + strings.Join(cmdInit.Args, " "))
-	cmdInit.Dir = d
-	initOutput, err := cmdInit.CombinedOutput()
-	if err != nil {
-		fmt.Println(string(initOutput))
+	if p.LocalPkg {
+		// replace github.com/GoodNotes/typescriptify-golang-structs with the current directory
+		pwd, err := os.Getwd()
 		handleErr(err)
+		executeCommand(d, nil, "go", "mod", "edit", "-replace", "github.com/GoodNotes/typescriptify-golang-structs="+pwd)
 	}
-	fmt.Println(string(initOutput))
-	cmdGet := exec.Command("go", "get", "-v")
-	cmdGet.Env = append(os.Environ(), "GO111MODULE=on")
-	fmt.Println(d + ": " + strings.Join(cmdGet.Args, " "))
-	cmdGet.Dir = d
-	getOutput, err := cmdGet.CombinedOutput()
-	if err != nil {
-		fmt.Println(string(getOutput))
-		handleErr(err)
+
+	cmdGet := []string{"go", "get", "-v"}
+	environ := append(os.Environ(), "GO111MODULE=on")
+	executeCommand(d, environ, cmdGet...)
+
+	executeCommand(d, nil, "go", "run", ".")
+
+	err = os.Rename(filepath.Join(d, p.TargetFile), p.TargetFile)
+	handleErr(err)
+}
+
+// cmdDir: Directory to execute command from
+// env: Environment variables (Optional, Pass nil if not required)
+// args: Command arguments
+func executeCommand(cmdDir string, env []string, args ...string) string {
+	cmd := exec.Command(args[0], args[1:]...)
+
+	// Assign environment variables, if provided.
+	if env != nil {
+		cmd.Env = env
 	}
-	fmt.Println(string(getOutput))
-	cmd = exec.Command("go", "run", ".")
-	cmd.Dir = d
-	fmt.Println(d + ": " + strings.Join(cmd.Args, " "))
+
+	fmt.Println(cmdDir + ": " + strings.Join(cmd.Args, " "))
+	cmd.Dir = cmdDir
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -171,8 +184,8 @@ func main() {
 		handleErr(err)
 	}
 	fmt.Println(string(output))
-	err = os.Rename(filepath.Join(d, p.TargetFile), p.TargetFile)
-	handleErr(err)
+
+	return string(output)
 }
 
 func GetGolangFileStructs(filename string) ([]string, error) {
