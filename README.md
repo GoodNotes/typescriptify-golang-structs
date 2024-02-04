@@ -442,15 +442,15 @@ func main() {
 Below snippet shows how to set the field `ObjectType` of the above `SecretDescriptor` struct to a Union type of literal Types using the `AddFieldTags` method:
 
 ```golang
-  sdType := reflect.TypeOf(provider.SecretDescriptor{})
-  // set sd ObjectType to "ssmparameter" | "secretsmanager"
-	fieldTags := make(FieldTags)
+	sdType := reflect.TypeOf(provider.SecretDescriptor{})
+	// set sd ObjectType to "ssmparameter" | "secretsmanager"
+	fieldTags := make(typescriptify.FieldTags)
 	fieldTags["ObjectType"] = []*structtag.Tag{
-    {
-	  	Key:     "ts_type",
-      Name:    "\"ssmparameter\" | \"secretsmanager\"",
-      Options: []string{},
-    },
+		{
+			Key:     "ts_type",
+			Name:    "\"ssmparameter\" | \"secretsmanager\"",
+			Options: []string{},
+		},
 	}
 	sdTypeTagged := typescriptify.AddFieldTags(sdType, &fieldTags)
 
