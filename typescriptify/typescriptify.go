@@ -9,7 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fatih/structtag"
 	"github.com/tkrajina/go-reflector/reflector"
+	"golang.org/x/exp/slices"
 )
 
 const (
@@ -42,10 +44,70 @@ type TypeOptions struct {
 	TSTransform string
 }
 
+// FieldTags allow to add any tags to a field.
+type FieldTags map[string][]*structtag.Tag
+
+// Set tags to struct fields
+func AddFieldTags(t reflect.Type, fieldTags *FieldTags) reflect.Type {
+	sf := make([]reflect.StructField, 0)
+	for i := 0; i < t.NumField(); i++ {
+		sf = append(sf, t.Field(i))
+
+		if newTags, ok := (*fieldTags)[t.Field(i).Name]; ok {
+			// parse field Tag
+			tagString := string(t.Field(i).Tag)
+			tags, err := structtag.Parse(tagString)
+			if err != nil {
+				fmt.Printf("Error parsing %q: %v\n", tagString, err)
+				continue
+			}
+			// set newTags
+			for _, tag := range newTags {
+				err := tags.Set(tag)
+				if err != nil {
+					fmt.Printf("Error setting tag %q: %v\n", tag, err)
+				}
+			}
+			sf[i].Tag = reflect.StructTag(tags.String())
+		}
+	}
+	return reflect.StructOf(sf)
+}
+
+// Create anonymous struct with provided new tags added to all fields
+func TagAll(t reflect.Type, newTags []string) reflect.Type {
+	sf := make([]reflect.StructField, 0)
+	for i := 0; i < t.NumField(); i++ {
+		sf = append(sf, t.Field(i))
+
+		// parse field Tag
+		tagString := string(t.Field(i).Tag)
+		tags, err := structtag.Parse(tagString)
+		if err != nil {
+			fmt.Printf("Error parsing %q: %v\n", tagString, err)
+			continue
+		}
+		// add newTags to json tag
+		jsonTag, err := tags.Get("json")
+		if err != nil {
+			fmt.Printf("Error getting json tag: %s\n", err)
+			continue
+		}
+		jsonTag.Options = newTags
+		err = tags.Set(jsonTag)
+		if err != nil {
+			fmt.Printf("Error setting %q tags: %s\n", newTags, err)
+		}
+		sf[i].Tag = reflect.StructTag(tags.String())
+	}
+	return reflect.StructOf(sf)
+}
+
 // StructType stores settings for transforming one Golang struct.
 type StructType struct {
 	Type         reflect.Type
 	FieldOptions map[reflect.Type]TypeOptions
+	Name         string
 }
 
 func NewStruct(i interface{}) *StructType {
@@ -86,6 +148,7 @@ type TypeScriptify struct {
 	BackupDir         string // If empty no backup
 	DontExport        bool
 	CreateInterface   bool
+	ReadOnlyFields    bool
 	customImports     []string
 
 	structTypes []StructType
@@ -194,6 +257,11 @@ func (t *TypeScriptify) WithInterface(b bool) *TypeScriptify {
 	return t
 }
 
+func (t *TypeScriptify) WithReadonlyFields(b bool) *TypeScriptify {
+	t.ReadOnlyFields = b
+	return t
+}
+
 func (t *TypeScriptify) WithConstructor(b bool) *TypeScriptify {
 	t.CreateConstructor = b
 	return t
@@ -235,6 +303,11 @@ func (t *TypeScriptify) Add(obj interface{}) *TypeScriptify {
 
 func (t *TypeScriptify) AddType(typeOf reflect.Type) *TypeScriptify {
 	t.structTypes = append(t.structTypes, StructType{Type: typeOf})
+	return t
+}
+
+func (t *TypeScriptify) AddTypeWithName(typeOf reflect.Type, name string) *TypeScriptify {
+	t.structTypes = append(t.structTypes, StructType{Type: typeOf, Name: name})
 	return t
 }
 
@@ -556,7 +629,20 @@ func (t *TypeScriptify) convertType(depth int, typeOf reflect.Type, customCode m
 
 	t.alreadyConverted[typeOf] = true
 
-	entityName := t.Prefix + typeOf.Name() + t.Suffix
+	typeName := typeOf.Name()
+	if typeName == "" {
+		idx := slices.IndexFunc(t.structTypes,
+			func(structType StructType) bool {
+				return typeOf == structType.Type
+			})
+		if idx >= 0 && t.structTypes[idx].Name != "" {
+			typeName = t.structTypes[idx].Name
+		} else {
+			fmt.Println("Use .AddTypeWithName to avoid UnknownStruct")
+			typeName = "UnknownStruct"
+		}
+	}
+	entityName := t.Prefix + typeName + t.Suffix
 	result := ""
 	if t.CreateInterface {
 		result += fmt.Sprintf("interface %s {\n", entityName)
@@ -567,10 +653,11 @@ func (t *TypeScriptify) convertType(depth int, typeOf reflect.Type, customCode m
 		result = "export " + result
 	}
 	builder := typeScriptClassBuilder{
-		types:  t.kinds,
-		indent: t.Indent,
-		prefix: t.Prefix,
-		suffix: t.Suffix,
+		types:          t.kinds,
+		indent:         t.Indent,
+		prefix:         t.Prefix,
+		suffix:         t.Suffix,
+		readOnlyFields: t.ReadOnlyFields,
 	}
 
 	fields := deepFields(typeOf)
@@ -733,6 +820,7 @@ type typeScriptClassBuilder struct {
 	createFromMethodBody []string
 	constructorBody      []string
 	prefix, suffix       string
+	readOnlyFields       bool
 }
 
 func (t *typeScriptClassBuilder) AddSimpleArrayField(fieldName string, field reflect.StructField, arrayDepth int, opts TypeOptions) error {
@@ -810,5 +898,9 @@ func (t *typeScriptClassBuilder) addFieldDefinitionLine(line string) {
 }
 
 func (t *typeScriptClassBuilder) addField(fld, fldType string) {
-	t.fields = append(t.fields, fmt.Sprint(t.indent, fld, ": ", fldType, ";"))
+	ro := ""
+	if t.readOnlyFields {
+		ro = "readonly "
+	}
+	t.fields = append(t.fields, fmt.Sprint(t.indent, ro, fld, ": ", fldType, ";"))
 }

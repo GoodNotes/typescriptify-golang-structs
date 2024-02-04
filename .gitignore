@@ -3,3 +3,4 @@
 *.iml
 tags
 tmp_*
+node_modules

@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"text/template"
 )
@@ -27,17 +28,30 @@ const TEMPLATE = `package main
 
 import (
 	"fmt"
+{{- if .AllOptional }}
+	"reflect"
+{{- end }}
 
 	m "{{ .ModelsPackage }}"
-	"github.com/tkrajina/typescriptify-golang-structs/typescriptify"
+	"github.com/GoodNotes/typescriptify-golang-structs/typescriptify"
 )
 
 func main() {
+{{ if .AllOptional }}
+{{ range .Structs }}	{{ . }}Optional := typescriptify.TagAll(reflect.TypeOf(m.{{ . }}{}), []string{"omitempty"})
+{{ end }}
+{{ end }}
 	t := typescriptify.New()
 	t.CreateInterface = {{ .Interface }}
+	t.ReadOnlyFields = {{ .Readonly }}
 {{ range $key, $value := .InitParams }}	t.{{ $key }}={{ $value }}
 {{ end }}
-{{ range .Structs }}	t.Add({{ . }}{})
+{{ if .AllOptional }}
+{{ range .Structs }}	t.AddTypeWithName({{ . }}Optional, "{{ . }}")
+{{ end }}
+{{ else }}
+{{ range .Structs }}	t.Add(m.{{ . }}{})
+{{ end }}
 {{ end }}
 {{ range .CustomImports }}	t.AddImport("{{ . }}")
 {{ end }}
@@ -55,6 +69,8 @@ type Params struct {
 	InitParams    map[string]interface{}
 	CustomImports arrayImports
 	Interface     bool
+	Readonly      bool
+	AllOptional   bool
 	Verbose       bool
 }
 
@@ -65,6 +81,8 @@ func main() {
 	flag.StringVar(&p.TargetFile, "target", "", "Target typescript file")
 	flag.StringVar(&backupDir, "backup", "", "Directory where backup files are saved")
 	flag.BoolVar(&p.Interface, "interface", false, "Create interfaces (not classes)")
+	flag.BoolVar(&p.Readonly, "readonly", false, "Create interfaces with readonly fields")
+	flag.BoolVar(&p.AllOptional, "all-optional", false, "Create interfaces with all fields optional")
 	flag.Var(&p.CustomImports, "import", "Typescript import for your custom type, repeat this option for each import needed")
 	flag.BoolVar(&p.Verbose, "verbose", false, "Verbose logs")
 	flag.Parse()
@@ -94,7 +112,11 @@ func main() {
 
 	t := template.Must(template.New("").Parse(TEMPLATE))
 
-	f, err := os.CreateTemp(os.TempDir(), "typescriptify_*.go")
+	d, err := os.MkdirTemp("", "tscriptify")
+	handleErr(err)
+	defer os.RemoveAll(d)
+
+	f, err := os.CreateTemp(d, "main*.go")
 	handleErr(err)
 	defer f.Close()
 
@@ -102,7 +124,7 @@ func main() {
 	for _, str := range structs {
 		str = strings.TrimSpace(str)
 		if len(str) > 0 {
-			structsArr = append(structsArr, "m."+str)
+			structsArr = append(structsArr, str)
 		}
 	}
 
@@ -119,14 +141,38 @@ func main() {
 		fmt.Printf("\nCompiling generated code (%s):\n%s\n----------------------------------------------------------------------------------------------------\n", f.Name(), string(byts))
 	}
 
-	cmd := exec.Command("go", "run", f.Name())
-	fmt.Println(strings.Join(cmd.Args, " "))
+	var cmd *exec.Cmd
+	cmdInit := exec.Command("go", "mod", "init", "tmp")
+	fmt.Println(d + ": " + strings.Join(cmdInit.Args, " "))
+	cmdInit.Dir = d
+	initOutput, err := cmdInit.CombinedOutput()
+	if err != nil {
+		fmt.Println(string(initOutput))
+		handleErr(err)
+	}
+	fmt.Println(string(initOutput))
+	cmdGet := exec.Command("go", "get", "-v")
+	cmdGet.Env = append(os.Environ(), "GO111MODULE=on")
+	fmt.Println(d + ": " + strings.Join(cmdGet.Args, " "))
+	cmdGet.Dir = d
+	getOutput, err := cmdGet.CombinedOutput()
+	if err != nil {
+		fmt.Println(string(getOutput))
+		handleErr(err)
+	}
+	fmt.Println(string(getOutput))
+	cmd = exec.Command("go", "run", ".")
+	cmd.Dir = d
+	fmt.Println(d + ": " + strings.Join(cmd.Args, " "))
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		fmt.Println(string(output))
 		handleErr(err)
 	}
 	fmt.Println(string(output))
+	err = os.Rename(filepath.Join(d, p.TargetFile), p.TargetFile)
+	handleErr(err)
 }
 
 func GetGolangFileStructs(filename string) ([]string, error) {

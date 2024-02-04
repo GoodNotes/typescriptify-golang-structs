@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fatih/structtag"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -156,6 +157,51 @@ interface Person {
 	testConverter(t, converter, true, desiredResult, nil)
 }
 
+func TestTypescriptifyWithAddTags(t *testing.T) {
+	t.Parallel()
+	converter := New()
+
+	// tag all fields as optional (omitempty)
+	addressOptional := TagAll(reflect.TypeOf(Address{}), []string{"omitempty"})
+	converter.BackupDir = ""
+	converter.CreateInterface = true
+	converter.ReadOnlyFields = true
+	converter.AddTypeWithName(addressOptional, "Address")
+
+	desiredResult := `export interface Address {
+    readonly duration?: number;
+    readonly text?: string;
+}`
+	testConverter(t, converter, true, desiredResult, nil)
+}
+
+func TestTypescriptifyWithFieldTags(t *testing.T) {
+	t.Parallel()
+	converter := New()
+
+	// tag Address.Text1 with ts_type
+	// Union literals "domestic" | "european" | "international"
+	fieldTags := make(FieldTags)
+	fieldTags["Text1"] = []*structtag.Tag{
+		{
+			Key:     "ts_type",
+			Name:    "\"domestic\" | \"european\" | \"international\"",
+			Options: []string{},
+		},
+	}
+	addressTagged := AddFieldTags(reflect.TypeOf(Address{}), &fieldTags)
+	converter.BackupDir = ""
+	converter.CreateInterface = true
+	converter.ReadOnlyFields = true
+	converter.AddTypeWithName(addressTagged, "Address")
+
+	desiredResult := `export interface Address {
+    readonly duration: number;
+    readonly text?: "domestic" | "european" | "international";
+}`
+	testConverter(t, converter, true, desiredResult, nil)
+}
+
 func TestTypescriptifyWithDoubleClasses(t *testing.T) {
 	t.Parallel()
 	converter := New()
@@ -261,9 +307,9 @@ func testConverter(t *testing.T, converter *TypeScriptify, strictMode bool, desi
 		panic(err.Error())
 	}
 
-	fmt.Println("----------------------------------------------------------------------------------------------------")
+	fmt.Println("Desired: -------------------------------------------------------------------------------------------")
 	fmt.Println(desiredResult)
-	fmt.Println("----------------------------------------------------------------------------------------------------")
+	fmt.Println("Actual:  -------------------------------------------------------------------------------------------")
 	fmt.Println(typeScriptCode)
 	fmt.Println("----------------------------------------------------------------------------------------------------")
 
@@ -321,9 +367,9 @@ func testTypescriptExpression(t *testing.T, strictMode bool, baseScript string, 
 	fmt.Println("tmp ts: ", f.Name())
 	var byts []byte
 	if strictMode {
-		byts, err = exec.Command("tsc", "--strict", f.Name()).CombinedOutput()
+		byts, err = exec.Command("npx", "tsc", "--strict", f.Name()).CombinedOutput()
 	} else {
-		byts, err = exec.Command("tsc", f.Name()).CombinedOutput()
+		byts, err = exec.Command("npx", "tsc", f.Name()).CombinedOutput()
 	}
 	assert.Nil(t, err, string(byts))
 
@@ -791,7 +837,7 @@ func TestMaps(t *testing.T) {
       export class API_Address {
           duration: number;
           text?: string;
-      
+
           constructor(source: any = {}) {
               if ('string' === typeof source) source = JSON.parse(source);
               this.duration = source["duration"];
@@ -867,7 +913,7 @@ func TestAnonymousPtr(t *testing.T) {
 	desiredResult := `
       export class PersonWithPtrName {
           name: string;
-      
+
           constructor(source: any = {}) {
               if ('string' === typeof source) source = JSON.parse(source);
               this.name = source["name"];
@@ -896,7 +942,7 @@ const converter = new Converter();
 class Address {
     street: string;
     number: number;
-    
+
     constructor(a: any) {
         this.street = a["street"];
         this.number = a["number"];
@@ -941,7 +987,7 @@ func TestIgnoredPTR(t *testing.T) {
 	desiredResult := `
       export class PersonWithIgnoredPtr {
           name: string;
-      
+
           constructor(source: any = {}) {
               if ('string' === typeof source) source = JSON.parse(source);
               this.name = source["name"];

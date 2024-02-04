@@ -1,0 +1,17 @@
+{
+  "name": "typescriptify-golang-structs",
+  "version": "1.0.0",
+  "description": "The command-line tool:",
+  "main": "index.js",
+  "directories": {
+    "example": "example"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
