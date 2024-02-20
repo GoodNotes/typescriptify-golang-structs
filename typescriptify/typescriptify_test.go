@@ -830,10 +830,15 @@ export class Person {
 	testConverter(t, converter, true, desiredResult, nil)
 }
 
+type SourceID string
+
 type WithMap struct {
-	Map        map[string]int      `json:"simpleMap"`
-	MapObjects map[string]Address  `json:"mapObjects"`
-	PtrMap     *map[string]Address `json:"ptrMapObjects"`
+	Map          map[string]int        `json:"simpleMap"`
+	MapObjects   map[string]Address    `json:"mapObjects"`
+	PtrMap       *map[string]Address   `json:"ptrMapObjects"`
+	MapKeyAlias  *map[SourceID]Address `json:"mapKeyAlias"`
+	SourceID     SourceID              `json:"sourceID"`
+	ExposedPorts map[string]struct{}   `json:"ExposedPorts,omitempty"`
 }
 
 func TestMaps(t *testing.T) {
@@ -851,22 +856,28 @@ export class API_Address {
 	Text2?: string;
 
 	constructor(source: any = {}) {
-			if ('string' === typeof source) source = JSON.parse(source);
-			this.duration = source["duration"];
-			this.text = source["text"];
-			this.Text2 = source["Text2"];
+		if ('string' === typeof source) source = JSON.parse(source);
+		this.duration = source["duration"];
+		this.text = source["text"];
+		this.Text2 = source["Text2"];
 	}
 }
 export class API_WithMap {
-		simpleMap: {[key: string]: number};
-		mapObjects: {[key: string]: API_Address};
-		ptrMapObjects?: {[key: string]: API_Address};
+	simpleMap: {[key: string]: number};
+	mapObjects: {[key: string]: API_Address};
+	ptrMapObjects?: {[key: string]: API_Address};
+	mapKeyAlias?: {[key: string]: API_Address};
+	sourceID: string;
+	ExposedPorts?: {[key: string]: any};
 
 	constructor(source: any = {}) {
 		if ('string' === typeof source) source = JSON.parse(source);
 		this.simpleMap = source["simpleMap"];
 		this.mapObjects = this.convertValues(source["mapObjects"], API_Address, true);
 		this.ptrMapObjects = this.convertValues(source["ptrMapObjects"], API_Address, true);
+		this.mapKeyAlias = this.convertValues(source["mapKeyAlias"], API_Address, true);
+		this.sourceID = source["sourceID"];
+		this.ExposedPorts = source["ExposedPorts"];
 	}
 
 	` + tsConvertValuesFunc + `

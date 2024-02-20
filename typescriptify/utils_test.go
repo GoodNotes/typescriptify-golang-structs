@@ -1,6 +1,8 @@
 package typescriptify
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestIndentLines(t *testing.T) {
 	t.Parallel()
