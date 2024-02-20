@@ -44,7 +44,7 @@ type TypeOptions struct {
 	TSTransform string
 }
 
-// FieldTags allow to add any tags to a field.
+// FieldTags add any tags to a field.
 type FieldTags map[string][]*structtag.Tag
 
 // Set tags to struct fields
@@ -107,6 +107,7 @@ func TagAll(t reflect.Type, newTags []string) reflect.Type {
 type StructType struct {
 	Type         reflect.Type
 	FieldOptions map[reflect.Type]TypeOptions
+	TypeHandlers map[reflect.Type]TypeConversionHandler
 	Name         string
 }
 
@@ -130,19 +131,34 @@ func (st *StructType) WithFieldOpts(i interface{}, opts TypeOptions) *StructType
 	return st
 }
 
+func (st *StructType) WithTypeHandler(i interface{}, handler TypeConversionHandler) *StructType {
+	if st.TypeHandlers == nil {
+		st.TypeHandlers = map[reflect.Type]TypeConversionHandler{}
+	}
+	var typ reflect.Type
+	if ty, is := i.(reflect.Type); is {
+		typ = ty
+	} else {
+		typ = reflect.TypeOf(i)
+	}
+	st.TypeHandlers[typ] = handler
+	return st
+}
+
 type EnumType struct {
 	Type reflect.Type
 }
 
-type enumElement struct {
-	value interface{}
-	name  string
+type EnumElement struct {
+	Value interface{}
+	Name  string
 }
 
 type TypeScriptify struct {
-	Prefix            string
-	Suffix            string
-	Indent            string
+	Prefix string
+	Suffix string
+	Indent string
+	// deprecated: use CreateConstructor
 	CreateFromMethod  bool
 	CreateConstructor bool
 	BackupDir         string // If empty no backup
@@ -153,12 +169,14 @@ type TypeScriptify struct {
 	CamelCaseOptions  *CamelCaseOptions
 	customImports     []string
 
-	structTypes []StructType
-	enumTypes   []EnumType
-	enums       map[reflect.Type][]enumElement
-	kinds       map[reflect.Kind]string
+	structTypes                  []StructType
+	enumTypes                    []EnumType
+	enums                        map[reflect.Type][]EnumElement
+	kinds                        map[reflect.Kind]string
+	DefaultTypeConversionHandler TypeConversionHandler
 
 	fieldTypeOptions map[reflect.Type]TypeOptions
+	typeHandlers     map[reflect.Type]TypeConversionHandler
 
 	// throwaway, used when converting
 	alreadyConverted map[reflect.Type]bool
@@ -190,6 +208,7 @@ func New() *TypeScriptify {
 	kinds[reflect.String] = "string"
 
 	result.kinds = kinds
+	result.DefaultTypeConversionHandler = &DefaultTypeConversionHandler{}
 
 	result.Indent = "    "
 	result.CreateFromMethod = false
@@ -198,7 +217,8 @@ func New() *TypeScriptify {
 	return result
 }
 
-func deepFields(typeOf reflect.Type) []reflect.StructField {
+// DeepFields returns all fields of a struct, including fields of embedded structs.
+func DeepFields(typeOf reflect.Type) []reflect.StructField {
 	fields := make([]reflect.StructField, 0)
 
 	if typeOf.Kind() == reflect.Ptr {
@@ -215,10 +235,10 @@ func deepFields(typeOf reflect.Type) []reflect.StructField {
 		kind := f.Type.Kind()
 		if f.Anonymous && kind == reflect.Struct {
 			//fmt.Println(v.Interface())
-			fields = append(fields, deepFields(f.Type)...)
+			fields = append(fields, DeepFields(f.Type)...)
 		} else if f.Anonymous && kind == reflect.Ptr && f.Type.Elem().Kind() == reflect.Struct {
 			//fmt.Println(v.Interface())
-			fields = append(fields, deepFields(f.Type.Elem())...)
+			fields = append(fields, DeepFields(f.Type.Elem())...)
 		} else {
 			fields = append(fields, f)
 		}
@@ -227,7 +247,7 @@ func deepFields(typeOf reflect.Type) []reflect.StructField {
 	return fields
 }
 
-func (ts TypeScriptify) logf(depth int, s string, args ...interface{}) {
+func (ts TypeScriptify) Logf(depth int, s string, args ...interface{}) {
 	fmt.Printf(strings.Repeat("   ", depth)+s+"\n", args...)
 }
 
@@ -249,6 +269,32 @@ func (t *TypeScriptify) ManageType(fld interface{}, opts TypeOptions) *TypeScrip
 	return t
 }
 
+// ManageTypeConversion can define custom conversion Handler for fields of one or more types.
+//
+// This can be used to register different conversion handlers per struct type.
+func (t *TypeScriptify) ManageTypeConversion(handler TypeConversionHandler, flds ...interface{}) *TypeScriptify {
+	for _, fld := range flds {
+		var typ reflect.Type
+		switch t := fld.(type) {
+		case reflect.Type:
+			typ = t
+		default:
+			typ = reflect.TypeOf(fld)
+		}
+		if t.typeHandlers == nil {
+			t.typeHandlers = map[reflect.Type]TypeConversionHandler{}
+		}
+		t.typeHandlers[typ] = handler
+	}
+	return t
+}
+
+func (t *TypeScriptify) WithTypeConversionHandler(handler TypeConversionHandler) *TypeScriptify {
+	t.DefaultTypeConversionHandler = handler
+	return t
+}
+
+// deprecated: use WithConstructor
 func (t *TypeScriptify) WithCreateFromMethod(b bool) *TypeScriptify {
 	t.CreateFromMethod = b
 	return t
@@ -319,7 +365,7 @@ func (t *TypeScriptify) AddTypeWithName(typeOf reflect.Type, name string) *TypeS
 	return t
 }
 
-func (t *typeScriptClassBuilder) AddMapField(fieldName string, field reflect.StructField) {
+func (t *TypeScriptClassBuilder) AddMapField(fieldName string, field reflect.StructField) {
 	keyType := field.Type.Key()
 	valueType := field.Type.Elem()
 	valueTypeName := valueType.Name()
@@ -335,6 +381,9 @@ func (t *typeScriptClassBuilder) AddMapField(fieldName string, field reflect.Str
 	strippedFieldName := strings.ReplaceAll(fieldName, "?", "")
 
 	keyTypeStr := keyType.Name()
+	if name, ok := t.types[keyType.Kind()]; ok {
+		keyTypeStr = name
+	}
 	// Key should always be string, no need for this:
 	// _, isSimple := t.types[keyType.Kind()]
 	// if !isSimple {
@@ -342,8 +391,13 @@ func (t *typeScriptClassBuilder) AddMapField(fieldName string, field reflect.Str
 	// }
 
 	if valueType.Kind() == reflect.Struct {
-		t.fields = append(t.fields, fmt.Sprintf("%s%s: {[key: %s]: %s};", t.indent, fieldName, keyTypeStr, t.prefix+valueTypeName))
-		t.constructorBody = append(t.constructorBody, fmt.Sprintf("%s%sthis.%s = this.convertValues(source[\"%s\"], %s, true);", t.indent, t.indent, strippedFieldName, strippedFieldName, t.prefix+valueTypeName+t.suffix))
+		if len(valueTypeName) > 0 {
+			t.fields = append(t.fields, fmt.Sprintf("%s%s: {[key: %s]: %s};", t.indent, fieldName, keyTypeStr, t.prefix+valueTypeName+t.suffix))
+			t.constructorBody = append(t.constructorBody, fmt.Sprintf("%s%sthis.%s = this.convertValues(source[\"%s\"], %s, true);", t.indent, t.indent, strippedFieldName, strippedFieldName, t.prefix+valueTypeName+t.suffix))
+		} else {
+			t.fields = append(t.fields, fmt.Sprintf("%s%s: {[key: %s]: any};", t.indent, fieldName, keyTypeStr))
+			t.constructorBody = append(t.constructorBody, fmt.Sprintf("%s%sthis.%s = source[\"%s\"];", t.indent, t.indent, strippedFieldName, strippedFieldName))
+		}
 	} else {
 		t.fields = append(t.fields, fmt.Sprintf("%s%s: {[key: %s]: %s};", t.indent, fieldName, keyTypeStr, valueTypeName))
 		t.constructorBody = append(t.constructorBody, fmt.Sprintf("%s%sthis.%s = source[\"%s\"];", t.indent, t.indent, strippedFieldName, strippedFieldName))
@@ -352,18 +406,18 @@ func (t *typeScriptClassBuilder) AddMapField(fieldName string, field reflect.Str
 
 func (t *TypeScriptify) AddEnum(values interface{}) *TypeScriptify {
 	if t.enums == nil {
-		t.enums = map[reflect.Type][]enumElement{}
+		t.enums = map[reflect.Type][]EnumElement{}
 	}
 	items := reflect.ValueOf(values)
 	if items.Kind() != reflect.Slice {
 		panic(fmt.Sprintf("Values for %T isn't a slice", values))
 	}
 
-	var elements []enumElement
+	var elements []EnumElement
 	for i := 0; i < items.Len(); i++ {
 		item := items.Index(i)
 
-		var el enumElement
+		var el EnumElement
 		if item.Kind() == reflect.Struct {
 			r := reflector.New(item.Interface())
 			val, err := r.Field("Value").Get()
@@ -374,12 +428,12 @@ func (t *TypeScriptify) AddEnum(values interface{}) *TypeScriptify {
 			if err != nil {
 				panic(fmt.Sprint("missing TSName field in ", item.Type().String()))
 			}
-			el.value = val
-			el.name = name.(string)
+			el.Value = val
+			el.Name = name.(string)
 		} else {
-			el.value = item.Interface()
+			el.Value = item.Interface()
 			if tsNamer, is := item.Interface().(TSNamer); is {
-				el.name = tsNamer.TSName()
+				el.Name = tsNamer.TSName()
 			} else {
 				panic(fmt.Sprint(item.Type().String(), " has no TSName method"))
 			}
@@ -387,7 +441,7 @@ func (t *TypeScriptify) AddEnum(values interface{}) *TypeScriptify {
 
 		elements = append(elements, el)
 	}
-	ty := reflect.TypeOf(elements[0].value)
+	ty := reflect.TypeOf(elements[0].Value)
 	t.enums[ty] = elements
 	t.enumTypes = append(t.enumTypes, EnumType{Type: ty})
 
@@ -426,7 +480,7 @@ func (t *TypeScriptify) Convert(customCode map[string]string) (string, error) {
 	}
 
 	for _, strctTyp := range t.structTypes {
-		typeScriptCode, err := t.convertType(depth, strctTyp.Type, customCode)
+		typeScriptCode, err := t.ConvertType(depth, strctTyp.Type, customCode)
 		if err != nil {
 			return "", err
 		}
@@ -536,18 +590,18 @@ type TSNamer interface {
 	TSName() string
 }
 
-func (t *TypeScriptify) convertEnum(depth int, typeOf reflect.Type, elements []enumElement) (string, error) {
-	t.logf(depth, "Converting enum %s", typeOf.String())
-	if _, found := t.alreadyConverted[typeOf]; found { // Already converted
+func (t *TypeScriptify) convertEnum(depth int, typeOf reflect.Type, elements []EnumElement) (string, error) {
+	t.Logf(depth, "Converting enum %s", typeOf.String())
+	if t.IsMarkedConverted(typeOf) {
 		return "", nil
 	}
-	t.alreadyConverted[typeOf] = true
+	t.MarkConverted(typeOf)
 
 	entityName := t.Prefix + typeOf.Name() + t.Suffix
 	result := "enum " + entityName + " {\n"
 
 	for _, val := range elements {
-		result += fmt.Sprintf("%s%s = %#v,\n", t.Indent, val.name, val.value)
+		result += fmt.Sprintf("%s%s = %#v,\n", t.Indent, val.Name, val.Value)
 	}
 
 	result += "}"
@@ -557,6 +611,17 @@ func (t *TypeScriptify) convertEnum(depth int, typeOf reflect.Type, elements []e
 	}
 
 	return result, nil
+}
+
+func (t *TypeScriptify) MarkConverted(typeOf reflect.Type) {
+	t.alreadyConverted[typeOf] = true
+}
+
+func (t *TypeScriptify) IsMarkedConverted(typeOf reflect.Type) bool {
+	if _, found := t.alreadyConverted[typeOf]; found {
+		return true
+	}
+	return false
 }
 
 func (t *TypeScriptify) getFieldOptions(structType reflect.Type, field reflect.StructField) TypeOptions {
@@ -595,6 +660,28 @@ func (t *TypeScriptify) getFieldOptions(structType reflect.Type, field reflect.S
 	}
 
 	return opts
+}
+
+func (t *TypeScriptify) getTypeConversionHandler(structType reflect.Type, field reflect.StructField) TypeConversionHandler {
+	// find structType specific handler
+	for _, strct := range t.structTypes {
+		if strct.TypeHandlers == nil {
+			continue
+		}
+		if strct.Type == structType {
+			if handler, found := strct.TypeHandlers[field.Type]; found {
+				return handler
+			}
+		}
+	}
+
+	// find type specific global handler
+	if handler, found := t.typeHandlers[structType]; found {
+		return handler
+	}
+
+	// return default handler
+	return t.DefaultTypeConversionHandler
 }
 
 func (t *TypeScriptify) getJSONFieldName(field reflect.StructField, isPtr bool) string {
@@ -636,13 +723,13 @@ func (t *TypeScriptify) getJSONFieldName(field reflect.StructField, isPtr bool) 
 	return jsonFieldName
 }
 
-func (t *TypeScriptify) convertType(depth int, typeOf reflect.Type, customCode map[string]string) (string, error) {
-	if _, found := t.alreadyConverted[typeOf]; found { // Already converted
+func (t *TypeScriptify) ConvertType(depth int, typeOf reflect.Type, customCode map[string]string) (string, error) {
+	if t.IsMarkedConverted(typeOf) {
 		return "", nil
 	}
-	t.logf(depth, "Converting type %s", typeOf.String())
+	t.Logf(depth, "Converting type %s", typeOf.String())
 
-	t.alreadyConverted[typeOf] = true
+	t.MarkConverted(typeOf)
 
 	typeName := typeOf.Name()
 	if typeName == "" {
@@ -653,9 +740,12 @@ func (t *TypeScriptify) convertType(depth int, typeOf reflect.Type, customCode m
 		if idx >= 0 && t.structTypes[idx].Name != "" {
 			typeName = t.structTypes[idx].Name
 		} else {
-			fmt.Println("Use .AddTypeWithName to avoid UnknownStruct")
-			typeName = "UnknownStruct"
+			t.Logf(depth, "Use .AddTypeWithName to avoid any for %q", typeOf.Name())
+			typeName = "any"
 		}
+	}
+	if typeName == "any" {
+		return "", nil
 	}
 	entityName := t.Prefix + typeName + t.Suffix
 	result := ""
@@ -667,7 +757,7 @@ func (t *TypeScriptify) convertType(depth int, typeOf reflect.Type, customCode m
 	if !t.DontExport {
 		result = "export " + result
 	}
-	builder := typeScriptClassBuilder{
+	builder := TypeScriptClassBuilder{
 		types:          t.kinds,
 		indent:         t.Indent,
 		prefix:         t.Prefix,
@@ -675,7 +765,7 @@ func (t *TypeScriptify) convertType(depth int, typeOf reflect.Type, customCode m
 		readOnlyFields: t.ReadOnlyFields,
 	}
 
-	fields := deepFields(typeOf)
+	fields := DeepFields(typeOf)
 	for _, field := range fields {
 		isPtr := field.Type.Kind() == reflect.Ptr
 		if isPtr {
@@ -688,95 +778,9 @@ func (t *TypeScriptify) convertType(depth int, typeOf reflect.Type, customCode m
 
 		var err error
 		fldOpts := t.getFieldOptions(typeOf, field)
-		if fldOpts.TSDoc != "" {
-			builder.addFieldDefinitionLine("/** " + fldOpts.TSDoc + " */")
-		}
-		if fldOpts.TSTransform != "" {
-			t.logf(depth, "- simple field %s.%s", typeOf.Name(), field.Name)
-			err = builder.AddSimpleField(jsonFieldName, field, fldOpts)
-		} else if _, isEnum := t.enums[field.Type]; isEnum {
-			t.logf(depth, "- enum field %s.%s", typeOf.Name(), field.Name)
-			builder.AddEnumField(jsonFieldName, field)
-		} else if fldOpts.TSType != "" { // Struct:
-			t.logf(depth, "- simple field %s.%s", typeOf.Name(), field.Name)
-			err = builder.AddSimpleField(jsonFieldName, field, fldOpts)
-		} else if field.Type.Kind() == reflect.Struct { // Struct:
-			t.logf(depth, "- struct %s.%s (%s)", typeOf.Name(), field.Name, field.Type.String())
-			typeScriptChunk, err := t.convertType(depth+1, field.Type, customCode)
-			if err != nil {
-				return "", err
-			}
-			if typeScriptChunk != "" {
-				result = typeScriptChunk + "\n" + result
-			}
-			builder.AddStructField(jsonFieldName, field)
-		} else if field.Type.Kind() == reflect.Map {
-			t.logf(depth, "- map field %s.%s", typeOf.Name(), field.Name)
-			// Also convert map key types if needed
-			var keyTypeToConvert reflect.Type
-			switch field.Type.Key().Kind() {
-			case reflect.Struct:
-				keyTypeToConvert = field.Type.Key()
-			case reflect.Ptr:
-				keyTypeToConvert = field.Type.Key().Elem()
-			}
-			if keyTypeToConvert != nil {
-				typeScriptChunk, err := t.convertType(depth+1, keyTypeToConvert, customCode)
-				if err != nil {
-					return "", err
-				}
-				if typeScriptChunk != "" {
-					result = typeScriptChunk + "\n" + result
-				}
-			}
-			// Also convert map value types if needed
-			var valueTypeToConvert reflect.Type
-			switch field.Type.Elem().Kind() {
-			case reflect.Struct:
-				valueTypeToConvert = field.Type.Elem()
-			case reflect.Ptr:
-				valueTypeToConvert = field.Type.Elem().Elem()
-			}
-			if valueTypeToConvert != nil {
-				typeScriptChunk, err := t.convertType(depth+1, valueTypeToConvert, customCode)
-				if err != nil {
-					return "", err
-				}
-				if typeScriptChunk != "" {
-					result = typeScriptChunk + "\n" + result
-				}
-			}
+		typeConversionHandler := t.getTypeConversionHandler(typeOf, field)
+		result, err = typeConversionHandler.HandleTypeConversion(depth, result, t, &builder, typeOf, customCode, field, fldOpts, jsonFieldName)
 
-			builder.AddMapField(jsonFieldName, field)
-		} else if field.Type.Kind() == reflect.Slice || field.Type.Kind() == reflect.Array { // Slice:
-			if field.Type.Elem().Kind() == reflect.Ptr { //extract ptr type
-				field.Type = field.Type.Elem()
-			}
-
-			arrayDepth := 1
-			for field.Type.Elem().Kind() == reflect.Slice { // Slice of slices:
-				field.Type = field.Type.Elem()
-				arrayDepth++
-			}
-
-			if field.Type.Elem().Kind() == reflect.Struct { // Slice of structs:
-				t.logf(depth, "- struct slice %s.%s (%s)", typeOf.Name(), field.Name, field.Type.String())
-				typeScriptChunk, err := t.convertType(depth+1, field.Type.Elem(), customCode)
-				if err != nil {
-					return "", err
-				}
-				if typeScriptChunk != "" {
-					result = typeScriptChunk + "\n" + result
-				}
-				builder.AddArrayOfStructsField(jsonFieldName, field, arrayDepth)
-			} else { // Slice of simple fields:
-				t.logf(depth, "- slice field %s.%s", typeOf.Name(), field.Name)
-				err = builder.AddSimpleArrayField(jsonFieldName, field, arrayDepth, fldOpts)
-			}
-		} else { // Simple field:
-			t.logf(depth, "- simple field %s.%s", typeOf.Name(), field.Name)
-			err = builder.AddSimpleField(jsonFieldName, field, fldOpts)
-		}
 		if err != nil {
 			return "", err
 		}
@@ -818,6 +822,13 @@ func (t *TypeScriptify) convertType(depth int, typeOf reflect.Type, customCode m
 	return result, nil
 }
 
+func (t *TypeScriptify) IsEnum(field reflect.StructField) bool {
+	if _, isEnum := t.enums[field.Type]; isEnum {
+		return true
+	}
+	return false
+}
+
 func (t *TypeScriptify) AddImport(i string) {
 	for _, cimport := range t.customImports {
 		if cimport == i {
@@ -828,7 +839,7 @@ func (t *TypeScriptify) AddImport(i string) {
 	t.customImports = append(t.customImports, i)
 }
 
-type typeScriptClassBuilder struct {
+type TypeScriptClassBuilder struct {
 	types                map[reflect.Kind]string
 	indent               string
 	fields               []string
@@ -838,7 +849,7 @@ type typeScriptClassBuilder struct {
 	readOnlyFields       bool
 }
 
-func (t *typeScriptClassBuilder) AddSimpleArrayField(fieldName string, field reflect.StructField, arrayDepth int, opts TypeOptions) error {
+func (t *TypeScriptClassBuilder) AddSimpleArrayField(fieldName string, field reflect.StructField, arrayDepth int, opts TypeOptions) error {
 	fieldType, kind := field.Type.Elem().Name(), field.Type.Elem().Kind()
 	typeScriptType := t.types[kind]
 
@@ -858,7 +869,7 @@ func (t *typeScriptClassBuilder) AddSimpleArrayField(fieldName string, field ref
 	return fmt.Errorf("cannot find type for %s (%s/%s)", kind.String(), fieldName, fieldType)
 }
 
-func (t *typeScriptClassBuilder) AddSimpleField(fieldName string, field reflect.StructField, opts TypeOptions) error {
+func (t *TypeScriptClassBuilder) AddSimpleField(fieldName string, field reflect.StructField, opts TypeOptions) error {
 	fieldType, kind := field.Type.Name(), field.Type.Kind()
 
 	typeScriptType := t.types[kind]
@@ -882,37 +893,37 @@ func (t *typeScriptClassBuilder) AddSimpleField(fieldName string, field reflect.
 	return fmt.Errorf("cannot find type for %s (%s/%s)", kind.String(), fieldName, fieldType)
 }
 
-func (t *typeScriptClassBuilder) AddEnumField(fieldName string, field reflect.StructField) {
+func (t *TypeScriptClassBuilder) AddEnumField(fieldName string, field reflect.StructField) {
 	fieldType := field.Type.Name()
 	t.addField(fieldName, t.prefix+fieldType+t.suffix)
 	strippedFieldName := strings.ReplaceAll(fieldName, "?", "")
 	t.addInitializerFieldLine(strippedFieldName, fmt.Sprintf("source[\"%s\"]", strippedFieldName))
 }
 
-func (t *typeScriptClassBuilder) AddStructField(fieldName string, field reflect.StructField) {
+func (t *TypeScriptClassBuilder) AddStructField(fieldName string, field reflect.StructField) {
 	fieldType := field.Type.Name()
 	strippedFieldName := strings.ReplaceAll(fieldName, "?", "")
 	t.addField(fieldName, t.prefix+fieldType+t.suffix)
 	t.addInitializerFieldLine(strippedFieldName, fmt.Sprintf("this.convertValues(source[\"%s\"], %s)", strippedFieldName, t.prefix+fieldType+t.suffix))
 }
 
-func (t *typeScriptClassBuilder) AddArrayOfStructsField(fieldName string, field reflect.StructField, arrayDepth int) {
+func (t *TypeScriptClassBuilder) AddArrayOfStructsField(fieldName string, field reflect.StructField, arrayDepth int) {
 	fieldType := field.Type.Elem().Name()
 	strippedFieldName := strings.ReplaceAll(fieldName, "?", "")
 	t.addField(fieldName, fmt.Sprint(t.prefix+fieldType+t.suffix, strings.Repeat("[]", arrayDepth)))
 	t.addInitializerFieldLine(strippedFieldName, fmt.Sprintf("this.convertValues(source[\"%s\"], %s)", strippedFieldName, t.prefix+fieldType+t.suffix))
 }
 
-func (t *typeScriptClassBuilder) addInitializerFieldLine(fld, initializer string) {
+func (t *TypeScriptClassBuilder) addInitializerFieldLine(fld, initializer string) {
 	t.createFromMethodBody = append(t.createFromMethodBody, fmt.Sprint(t.indent, t.indent, "result.", fld, " = ", initializer, ";"))
 	t.constructorBody = append(t.constructorBody, fmt.Sprint(t.indent, t.indent, "this.", fld, " = ", initializer, ";"))
 }
 
-func (t *typeScriptClassBuilder) addFieldDefinitionLine(line string) {
+func (t *TypeScriptClassBuilder) AddFieldDefinitionLine(line string) {
 	t.fields = append(t.fields, t.indent+line)
 }
 
-func (t *typeScriptClassBuilder) addField(fld, fldType string) {
+func (t *TypeScriptClassBuilder) addField(fld, fldType string) {
 	ro := ""
 	if t.readOnlyFields {
 		ro = "readonly "
